@@ -1,0 +1,191 @@
+#!/usr/bin/env php
+<?php
+/**
+ *
+ */
+use Magento\Framework\App\Bootstrap;
+
+foreach ([
+    dirname(__DIR__), // bin
+    dirname(dirname(__DIR__)), // vendor/bin
+    dirname(dirname(dirname(dirname(__DIR__)))), // vendor/fishpig/magento2-dependency-detective/bin
+] as $basePath) {
+    $bootstrapFile = $basePath . '/app/bootstrap.php';
+
+    if (is_file($bootstrapFile)) {
+        require $bootstrapFile;
+        break;
+    }
+}
+
+if (!class_exists(Bootstrap::class)) {
+    echo "Could not find a Magento installation.";
+    exit(1);
+}
+
+$bootstrap = Bootstrap::create(BP, $_SERVER);
+$objectManager = $bootstrap->getObjectManager();
+$state = $objectManager->get('Magento\Framework\App\State')->setAreaCode('frontend');
+
+$config = [];
+$moduleBuffer = [];
+
+$moduleString = '';
+
+foreach (['vendor', 'app'] as $dir) {
+    if ($fileString = shell_exec_cached('find -L ' . BP . '/' . $dir . ' -type f -name "registration.php"')) {
+        $moduleString .= $fileString . "\n";        
+    }
+}
+
+if (!$moduleString) {
+    echo "Unable to find any registration.php files.\n";
+    exit(-1);
+}
+
+$files = explode("\n", $moduleString);
+
+$excludeDir = false;
+
+foreach ($argv as $key => $value) {
+    if (strpos($value, '--exclude-dir=') === 0) {
+        $excludeDir = substr($value, strlen('--exclude-dir='));
+    }
+}
+
+$disabledModules = [];
+
+foreach ($files as $file) {
+    $relative = str_replace(BP . '/', '', $file);
+    
+    if (strpos($relative, '/dev/tests/') !== false) {
+        continue;
+    }
+
+    $moduleXmlFile = dirname($file) . '/etc/module.xml';
+    
+    if (!is_file($moduleXmlFile)) {
+        continue;
+    }
+    
+    if ($excludeDir && strpos($moduleXmlFile, $excludeDir) !== false) {
+        $disabledModules[] = $moduleName;
+    }
+    
+    $moduleXml = simplexml_load_file($moduleXmlFile);
+    
+    $moduleName = (string)$moduleXml->module['name'];
+    
+    $moduleBuffer[$moduleName] = [];
+
+    if ($moduleXml->module->sequence->module) {
+        foreach ($moduleXml->module->sequence->module as $depModule) {
+            $moduleBuffer[$moduleName][] = (string)$depModule['name'];
+        }
+    }
+}
+
+$safety = 500;
+$modules = [];
+
+ksort($moduleBuffer);
+
+while ($moduleBuffer && $safety-- > 0) {
+    process_module(key($moduleBuffer), $moduleBuffer, $modules);
+}
+
+if (in_array('--dry-run', $argv)) {
+    $modules = array_keys($modules);
+    $config = include BP . '/app/etc/config.php';
+    
+    $changes = [
+        'removed' => [],
+        'added' => [],
+    ];
+    
+    foreach ($config['modules'] as $module => $flag) {
+        if (in_array($module, $modules)) {
+            if ((int)$flag === 0) {
+                echo $module . ' was disabled but is now removed.' . PHP_EOL;
+            }
+        } else {
+            $changes['removed'][] = $module;
+        }
+    }
+    
+    foreach ($modules as $module) {
+        if (!isset($config['modules'][$module])) {
+            $changes['added'][] = $module;
+        }
+    }
+    
+    print_r($changes);
+} else {
+    ob_start();
+    
+    echo "<?php
+return [
+    'modules' => [
+";
+            
+    foreach (array_keys($modules) as $moduleName) {
+        $moduleFlag = in_array($moduleName, $disabledModules) ? '0' : '1';
+
+        echo "        '" . $moduleName . "' => " . $moduleFlag . "," . PHP_EOL;
+    }
+    
+    echo "    ],
+];";
+    
+    $config = ob_get_clean();
+    
+    if (in_array('--write', $argv)) {
+        file_put_contents(BP . '/app/etc/config.php', $config);
+    } else {
+        echo $config;
+    }
+}
+
+/**
+ *
+ */
+function process_module($moduleName, &$moduleBuffer, &$modules, $level = 0)
+{
+    if (!isset($moduleBuffer[$moduleName])) {
+        return;
+    }
+
+    $deps = $moduleBuffer[$moduleName];
+    
+    unset($moduleBuffer[$moduleName]);
+    
+    if ($deps) {
+
+        foreach ($deps as $dep) {
+            process_module($dep, $moduleBuffer, $modules, $level+1);
+        }    
+    }
+
+    $modules[$moduleName] = true;
+}
+
+/**
+ * @param string $cmd
+ * @return false|string
+ */
+function shell_exec_cached($cmd)
+{
+    $cacheFile = BP . '/var/cache/' . md5(__FUNCTION__ . $cmd . date('YmdH')) . '.cache';
+    
+    if (!is_file($cacheFile)) {
+        if ($result = trim(shell_exec($cmd))) {
+            file_put_contents($cacheFile, $result);
+        } else {
+            return false;
+        }
+    } else {
+        $result = file_get_contents($cacheFile);
+    }
+    
+    return $result;
+}
