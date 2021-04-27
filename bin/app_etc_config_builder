@@ -49,8 +49,6 @@ $excludeDir = false;
 foreach ($argv as $key => $value) {
     if (strpos($value, '--exclude-dir=') === 0) {
         $excludeDir = substr($value, strlen('--exclude-dir='));
-    } elseif (strpos($value, '--exclude-vendor=') === 0) {
-        $excludeVendor = explode(',', trim(substr($value, strlen('--exclude-vendor='))));
     }
 }
 
@@ -69,13 +67,12 @@ foreach ($files as $file) {
         continue;
     }
     
+    $moduleXml = simplexml_load_file($moduleXmlFile);    
+    $moduleName = (string)$moduleXml->module['name'];
+    
     if ($excludeDir && strpos($moduleXmlFile, $excludeDir) !== false) {
         $disabledModules[] = $moduleName;
     }
-    
-    $moduleXml = simplexml_load_file($moduleXmlFile);
-    
-    $moduleName = (string)$moduleXml->module['name'];
     
     $moduleBuffer[$moduleName] = [];
 
@@ -93,17 +90,6 @@ ksort($moduleBuffer);
 
 while ($moduleBuffer && $safety-- > 0) {
     process_module(key($moduleBuffer), $moduleBuffer, $modules);
-}
-
-// Exclude vendors
-if (isset($excludeVendor)) {
-    $excludeVendorRegex = preg_quote(implode('|', $excludeVendor), '/');
-    
-    foreach ($modules as $moduleName => $flag) {
-        if (preg_match('/^(' . $excludeVendorRegex . ')_/', $moduleName)) {
-            unset($modules[$moduleName]);
-        }
-    }
 }
 
 if (in_array('--dry-run', $argv)) {
