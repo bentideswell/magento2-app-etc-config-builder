@@ -1,7 +1,7 @@
 {
     "name": "fishpig/magento2-app-etc-config-builder",
     "description": "Dynamically build app/etc/config.php",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "bin": [
         "bin/app_etc_config_builder"
     ]

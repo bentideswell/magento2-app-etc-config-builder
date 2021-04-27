@@ -29,7 +29,6 @@ $state = $objectManager->get('Magento\Framework\App\State')->setAreaCode('fronte
 
 $config = [];
 $moduleBuffer = [];
-
 $moduleString = '';
 
 foreach (['vendor', 'app'] as $dir) {
@@ -50,6 +49,8 @@ $excludeDir = false;
 foreach ($argv as $key => $value) {
     if (strpos($value, '--exclude-dir=') === 0) {
         $excludeDir = substr($value, strlen('--exclude-dir='));
+    } elseif (strpos($value, '--exclude-vendor=') === 0) {
+        $excludeVendor = explode(',', trim(substr($value, strlen('--exclude-vendor='))));
     }
 }
 
@@ -92,6 +93,17 @@ ksort($moduleBuffer);
 
 while ($moduleBuffer && $safety-- > 0) {
     process_module(key($moduleBuffer), $moduleBuffer, $modules);
+}
+
+// Exclude vendors
+if (isset($excludeVendor)) {
+    $excludeVendorRegex = preg_quote(implode('|', $excludeVendor), '/');
+    
+    foreach ($modules as $moduleName => $flag) {
+        if (preg_match('/^(' . $excludeVendorRegex . ')_/', $moduleName)) {
+            unset($modules[$moduleName]);
+        }
+    }
 }
 
 if (in_array('--dry-run', $argv)) {
