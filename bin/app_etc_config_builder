@@ -70,7 +70,7 @@ foreach ($files as $file) {
     $moduleXml = simplexml_load_file($moduleXmlFile);    
     $moduleName = (string)$moduleXml->module['name'];
     
-    if ($excludeDir && strpos($moduleXmlFile, $excludeDir) !== false) {
+    if ($excludeDir && strpos($moduleXmlFile, '/' . $excludeDir . '/') !== false) {
         $disabledModules[] = $moduleName;
     }
     
